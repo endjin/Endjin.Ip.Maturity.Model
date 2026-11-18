@@ -17,6 +17,11 @@
     <ProjectReference Include="..\Endjin.Imm.Domain\Endjin.Imm.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The Host's own settings, such as the GitHub organizations it allows. App settings override them. -->
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
     <None Update="local.settings.json.template">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>

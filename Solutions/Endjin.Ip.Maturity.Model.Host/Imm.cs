@@ -33,6 +33,11 @@ namespace Endjin.Ip.Maturity.Model.Host
     /// problem. Any other exception is a bug, and propagates.
     /// </para>
     /// <para>
+    /// A deployment evaluates IMMs only for repositories owned by the GitHub organizations in its
+    /// <see cref="AllowedGitHubOrganizations"/>. A request for any other organization is answered
+    /// with an <c>org-not-allowed</c> error badge or page, without fetching anything from GitHub.
+    /// </para>
+    /// <para>
     /// Each endpoint traces its work as a span from <see cref="HostTelemetry.ActivitySourceName"/>
     /// (<c>imm.badge.total</c>, <c>imm.badge.rule</c> or <c>imm.badge.showbadges</c>) tagged with
     /// the repository and branches requested, with an <c>imm.render</c> child around rendering the
@@ -59,15 +64,18 @@ namespace Endjin.Ip.Maturity.Model.Host
 
         private readonly IRuleDefinitionRepositorySource ruleDefinitionRepositorySource;
         private readonly IIpMaturityModelSource immSource;
+        private readonly AllowedGitHubOrganizations allowedOrganizations;
         private readonly ILogger<Imm> logger;
 
         public Imm(
             IRuleDefinitionRepositorySource ruleDefinitionRepositorySource,
             IIpMaturityModelSource immSource,
+            AllowedGitHubOrganizations allowedOrganizations,
             ILogger<Imm> logger)
         {
             this.ruleDefinitionRepositorySource = ruleDefinitionRepositorySource;
             this.immSource = immSource;
+            this.allowedOrganizations = allowedOrganizations;
             this.logger = logger;
         }
 
@@ -81,6 +89,11 @@ namespace Endjin.Ip.Maturity.Model.Host
             using Activity? activity = StartBadgeActivity(TotalActivityName, org, project, rulesObjectName, projectObjectName);
             try
             {
+                if (!this.allowedOrganizations.IsAllowed(org))
+                {
+                    return this.CreateErrorBadgeResponse(activity, request, org, project, TotalSubject, ImmFailure.OrgNotAllowed(org), null);
+                }
+
                 (Task<IRuleDefinitionRepository> rulesetTask, Task<IpMaturityModel> immTask) =
                     this.FetchFromGitHub(org, project, rulesObjectName, projectObjectName);
                 try
@@ -125,6 +138,11 @@ namespace Endjin.Ip.Maturity.Model.Host
             activity?.SetTag("imm.rule.id", ruleId);
             try
             {
+                if (!this.allowedOrganizations.IsAllowed(org))
+                {
+                    return this.CreateErrorBadgeResponse(activity, request, org, project, UnnamedRuleSubject, ImmFailure.OrgNotAllowed(org), null);
+                }
+
                 // Not a {ruleId:guid} route constraint, which would make the request a 404 with no badge.
                 if (!Guid.TryParse(ruleId, out Guid ruleIdAsGuid))
                 {
@@ -183,6 +201,12 @@ namespace Endjin.Ip.Maturity.Model.Host
             using Activity? activity = StartBadgeActivity(ShowBadgesActivityName, org, project, rulesObjectName, projectObjectName);
             try
             {
+                if (!this.allowedOrganizations.IsAllowed(org))
+                {
+                    return this.CreateErrorPageResponse(
+                        activity, request, org, project, rulesObjectName, projectObjectName, ImmFailure.OrgNotAllowed(org), null);
+                }
+
                 (Task<IRuleDefinitionRepository> rulesetTask, Task<IpMaturityModel> immTask) =
                     this.FetchFromGitHub(org, project, rulesObjectName, projectObjectName);
                 try
@@ -205,16 +229,7 @@ namespace Endjin.Ip.Maturity.Model.Host
                 }
                 catch (Exception ex) when (TryDescribeFailure(ex, rulesetTask, org, project, rulesObjectName, projectObjectName, out ImmFailure? failure))
                 {
-                    this.RecordFailure(activity, org, project, failure, ex);
-                    string html;
-                    using (StartRenderActivity("error-page"))
-                    {
-                        html = ImmBadges.RenderShowBadgesErrorPage(
-                            org, project, rulesObjectName, projectObjectName, failure.BadgeMessage, failure.PageMessage, failure.Url, failure.Hint);
-                    }
-
-                    request.HttpContext.Response.Headers[ErrorHeaderName] = failure.Code;
-                    return CreateUncacheResponse(request, html, "text/html", failure.PageStatusCode);
+                    return this.CreateErrorPageResponse(activity, request, org, project, rulesObjectName, projectObjectName, failure, ex);
                 }
             }
             catch (Exception ex)
@@ -389,6 +404,28 @@ namespace Endjin.Ip.Maturity.Model.Host
             return CreateUncacheResponse(request, svg, SvgMediaType);
         }
 
+        private ContentResult CreateErrorPageResponse(
+            Activity? activity,
+            HttpRequest request,
+            string org,
+            string project,
+            string rulesObjectName,
+            string projectObjectName,
+            ImmFailure failure,
+            Exception? exception)
+        {
+            this.RecordFailure(activity, org, project, failure, exception);
+            string html;
+            using (StartRenderActivity("error-page"))
+            {
+                html = ImmBadges.RenderShowBadgesErrorPage(
+                    org, project, rulesObjectName, projectObjectName, failure.BadgeMessage, failure.PageMessage, failure.Url, failure.Hint);
+            }
+
+            request.HttpContext.Response.Headers[ErrorHeaderName] = failure.Code;
+            return CreateUncacheResponse(request, html, "text/html", failure.PageStatusCode);
+        }
+
         /// <summary>
         /// Logs a problem shown as an error badge or page, and records it on the endpoint's span.
         /// </summary>
@@ -503,6 +540,15 @@ namespace Endjin.Ip.Maturity.Model.Host
                 $"The imm.yaml refers to rule id {ruleId}, which the rule set on branch '{rulesObjectName}' does not define.",
                 null,
                 "Check the rule id, or use the definitionsBranch parameter to choose the rule set the imm.yaml was written for.",
+                LogLevel.Information);
+
+            public static ImmFailure OrgNotAllowed(string org) => new(
+                "org-not-allowed",
+                "org not allowed",
+                StatusCodes.Status403Forbidden,
+                $"This deployment does not evaluate IMMs for repositories owned by '{org}'.",
+                null,
+                $"The deployment's operator can add the organization to its {AllowedGitHubOrganizations.ConfigurationKey} setting.",
                 LogLevel.Information);
 
             public static ImmFailure InvalidRuleId(string ruleId) => new(

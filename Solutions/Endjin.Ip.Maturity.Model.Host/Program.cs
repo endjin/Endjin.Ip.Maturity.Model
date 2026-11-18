@@ -4,6 +4,7 @@ using Endjin.Imm;
 using Endjin.Ip.Maturity.Model.Host;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Azure.Functions.Worker.OpenTelemetry;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,18 @@ builder.ConfigureFunctionsWebApplication();
 builder.Services.AddSingleton(new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }));
 builder.Services.AddMemoryCache();
 builder.Services.AddImmSources();
+
+// The GitHub organizations whose repositories this deployment evaluates IMMs for. appsettings.json lists
+// them; the app setting Imm__AllowedGitHubOrganizations replaces the list for one deployment. The file is
+// read from the app's own folder, rather than relying on the content root (which depends on the working
+// directory the Functions host starts the worker in), with the host's configuration layered over it so that
+// app settings and environment variables take precedence. A missing or empty list stops the app starting.
+IConfiguration allowedOrganizationsConfiguration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddConfiguration(builder.Configuration)
+    .Build();
+builder.Services.AddSingleton(AllowedGitHubOrganizations.FromConfiguration(allowedOrganizationsConfiguration));
 
 // Traces and logs are exported only when somewhere to send them is configured: Application Insights
 // (APPLICATIONINSIGHTS_CONNECTION_STRING) and/or an OTLP endpoint such as the Aspire dashboard

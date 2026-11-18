@@ -111,7 +111,8 @@ public partial class ShowBadgesPageTests
         string expectedEncodedProject)
     {
         // Arrange
-        ImmFunctionFixture fixture = new(HostYaml.TwoRuleSet, HostYaml.BothRulesScored);
+        // These orgs are not in the default accept list, which is not what this test is about.
+        ImmFunctionFixture fixture = new(HostYaml.TwoRuleSet, HostYaml.BothRulesScored, AllowedGitHubOrganizations.Any);
         string badges = $"/api/imm/github/{expectedEncodedOrg}/{expectedEncodedProject}";
         const string branches = "?cache=false&definitionsBranch=main&projectBranch=master";
 

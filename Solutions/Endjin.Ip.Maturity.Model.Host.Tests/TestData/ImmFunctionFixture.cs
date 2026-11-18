@@ -17,7 +17,7 @@ internal sealed class ImmFunctionFixture
 
     public const string Project = "Endjin.Ip.Maturity.Model";
 
-    public ImmFunctionFixture(string ruleSetYaml, string immYaml)
+    public ImmFunctionFixture(string ruleSetYaml, string immYaml, AllowedGitHubOrganizations? allowedOrganizations = null)
     {
         this.RuleDefinitionSource
             .GetRuleDefinitionRepositoryAsync(Arg.Any<string>())
@@ -26,7 +26,11 @@ internal sealed class ImmFunctionFixture
             .GetIpMaturityModelAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(_ => IpMaturityModel.FromYaml(immYaml));
 
-        this.Functions = new Imm(this.RuleDefinitionSource, this.ImmSource, this.Logger);
+        this.Functions = new Imm(
+            this.RuleDefinitionSource,
+            this.ImmSource,
+            allowedOrganizations ?? HostSettings.AllowedOrganizations(),
+            this.Logger);
     }
 
     /// <summary>

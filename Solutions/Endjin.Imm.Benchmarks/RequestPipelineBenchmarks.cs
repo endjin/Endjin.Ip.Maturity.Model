@@ -62,6 +62,7 @@ public class RequestPipelineBenchmarks
         this.functions = new ImmFunctions(
             new CachedRuleDefinitionSource(this.repository),
             new CachedImmSource(this.imm),
+            AllowedGitHubOrganizations.Only(["endjin", "corvus-dotnet", "ais-dotnet", "marain-dotnet", "menes-dotnet"]),
             NullLogger<ImmFunctions>.Instance);
 
         // One request is reused by every invocation: the functions only read its (empty) query
